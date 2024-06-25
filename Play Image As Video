@@ -1,0 +1,40 @@
+import cv2 
+import os
+from PIL import Image
+
+path = 'auto(108991)-1126am'
+out_path = 'F:/img to vdo/'
+out_video_name = '108991-1126am.mp4'
+out_video_full_path = os.path.join(out_path,out_video_name)
+
+pre_imgs = os.listdir(path)
+img = []
+
+for i in pre_imgs:
+    i = os.path.join(path,i)
+    img.append(i)
+
+
+cv2_fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
+frame = cv2.imread(img[0])
+
+size = list(frame.shape)
+del size [2]
+size.reverse()
+
+video = cv2.VideoWriter(out_video_full_path, cv2_fourcc, 24, size) # output video name, fourcc, fps, size
+
+
+
+for i in range(len(img)):
+    frame = cv2.imread(img[i]) #show tracking put before this spot
+    #video.write(cv2.imread(img[i]))
+    #ret, frame = cv2_fourcc.read()
+    video.write(cv2.imread(img[i]))
+    print(i)
+    cv2.imshow('video',frame) 
+    cv2.waitKey(100)
+
+video.release() # will overwrite file if one already present
+print('outputed video to ', out_path)
