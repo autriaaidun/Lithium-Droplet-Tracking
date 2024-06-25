@@ -1,0 +1,16 @@
+from PIL import Image
+
+path = 'Img000014.jpg'
+img = Image.open(path)
+
+width, height = img.size
+print('width: ', width)
+print('height: ', height)
+
+x = 500 #changes starting point on x-axis
+y = 50 #changes starting point on y-axis
+new_width = 600 #changes width
+new_height = 250 #changes height
+
+imgCropped = img.crop(box = (x,y,new_width,new_height)) # start at 1,2 width then height (0,0,width,height) = entire image
+display(imgCropped)
