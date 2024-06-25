@@ -1,0 +1,43 @@
+!pip install opencv-python
+
+!pip install -q ipycanvas==0.11
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+%pylab inline 
+import cv2
+from IPython.display import clear_output
+
+name_of_file = "109100.avi"
+
+# Grab the input device, webcam
+vid = cv2.VideoCapture(name_of_file)
+
+
+try:
+    while(True):
+        # Capture frame-by-frame
+        ret, frame = vid.read()
+        if not ret:
+            # Release the Video Device if ret is false
+            vid.release()
+            # Message to be displayed after releasing the device
+            print ("played video")
+            break
+        # Convert image from OpenCV BGR format to matplotlib RGB format to display image
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Turn off axis
+        axis("off")
+        # Title of window
+        title(name_of_file)
+        # Display frame
+        imshow(frame)
+        show()
+        # Display frame until new frame is available
+        clear_output(wait=True)
+except KeyboardInterrupt:
+    # Release Video Device
+    vid.release()
+    print ("Released Video Resource")
