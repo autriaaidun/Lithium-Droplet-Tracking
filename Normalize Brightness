@@ -1,0 +1,73 @@
+import cv2
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+%matplotlib inline
+import math
+from PIL import Image
+import matplotlib.image as imread
+
+
+path = 'Img000014.jpg'
+img_color = cv2.imread(path)
+img_bw = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+plt.imshow(img_color)
+plt.savefig('img_bw')
+
+
+
+img = Image.open('img_bw.png')
+
+width, height = img.size
+#print('width: ', width)
+#print('height: ', height)
+
+x = 445 #changes starting point on x-axis
+y = -60 #changes starting point on y-axis
+new_width = 600 #changes width
+new_height = 200 #changes height
+
+imgCropped = img.crop(box = (x,y,new_width,new_height)) #start at 1,2 width then height (0,0,width,height) = entire image
+
+imgCropped.show()
+#still need to figure out a way to save non manually not as a plot
+
+
+
+
+imgCroppedRay = cv2.imread('imgCropped.jpg').astype(np.float32)/255
+plt.imshow((imgCroppedRay*255).astype(np.uint8))
+#display(imgCroppedRay)
+file_name = 'Img000014cropped.jpg'
+plt.savefig(file_name)
+
+
+
+bn = (imgCroppedRay-(imgCroppedRay.mean()))/(imgCroppedRay.max()-imgCroppedRay.min())
+img_n = bn - bn.min()
+plt.imshow((img_n*255).astype(np.uint8))
+
+
+
+gamma = 2
+gamma_img = (np.power(img_n, gamma))
+plt.imshow((gamma_img * 255).astype(np.uint8))
+
+
+
+
+# Load the image in grayscale
+imgRay = cv2.imread(file_name).astype(np.float32)/255
+
+# Normalize the image to the range [0, 1]
+normalized_image = imgRay / 255.0
+
+# Apply the threshold
+threshold_value = 0.3
+
+binary_image = np.where(gamma_img > threshold_value, 1, 0)
+
+# Convert binary image to uint8 format for saving
+binary_image_uint8 = (binary_image * 255).astype(np.uint8)
+
+plt.imshow(binary_image_uint8)
