@@ -1,0 +1,20 @@
+import os
+from PIL import Image
+from matplotlib import pyplot as plt
+
+folder_name = 'auto(108991)-1126am'
+root = folder_name
+
+fnames = os.listdir(root) #gets path from folder
+len(fnames)
+
+fig , axs = plt.subplots(nrows=10,ncols=10)
+axs = axs.flatten()
+
+for i in range(100):
+    file_path = os.path.join(root,fnames[i])
+    img = Image.open(file_path)
+    axs[i].imshow(img)
+    axs[i].axis('off')
+
+plt.show()
