@@ -1,0 +1,103 @@
+import os
+import cv2
+import numpy as np
+import time
+
+# Define folder path containing the images
+folder_path = 'June29,506pm'
+image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')]
+image_files.sort()
+
+# Time per frame in milliseconds
+time_per_frame = 10
+
+crop_width = 50  # Width of the cropped area
+crop_height = 200  # Height of the cropped area
+
+frames = [
+    {'t': i, 'x': 500, 'y': 70, 'B': 1.15} for i in range(len(image_files))  # gives coordinate of where to start cropping
+]
+
+num_loops = 1  # Change this to the desired number of loops
+
+image_data = []
+
+exit_flag = False
+
+for loop in range(num_loops):
+    print(f"Starting loop {loop + 1}/{num_loops}")
+    
+    for frame in frames:
+        t = frame['t']
+        x = frame['x']
+        y = frame['y']
+        brightness_factor = frame['B']
+
+        image_file = image_files[t]  # Get the corresponding image for this frame
+        image_path = os.path.join(folder_path, image_file)
+        img = cv2.imread(image_path)
+
+        if img is None:
+            print(f"Error: The image at {image_path} could not be loaded.")
+            continue
+
+        start_time = time.time()
+
+        # Convert to grayscale
+        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Crop the image
+        img_cropped = img_gray[y:y + crop_height, x:x + crop_width]
+
+        if img_cropped.shape[0] == 0 or img_cropped.shape[1] == 0:
+            print(f"Error: Cropping parameters out of bounds for image at {image_path}.")
+            continue
+
+        # Apply brightness factor
+        img_bright = np.clip(img_cropped * brightness_factor, 0, 255).astype(np.uint8)
+
+        # Normalize the image
+        img_normalized = img_bright / 255.0
+
+        # Standardize the image
+        bn = (img_normalized - img_normalized.mean()) / (img_normalized.max() - img_normalized.min())
+        img_bn = bn - bn.min()
+
+        # Convert to array
+        img_bn_array = np.array(img_bn)
+
+        # Apply threshold
+        img_binary = np.where(img_bn > 0.8, 1, 0).astype(np.uint8) * 255
+
+        end_time = time.time()
+
+        elapsed_time = end_time - start_time
+
+        max_brightness = np.max(img_binary)
+
+        image_data.append((img.shape[1], img.shape[0], elapsed_time, max_brightness))
+        
+        cv2.imshow('Video Playback', img_binary)
+
+        key = cv2.waitKey(time_per_frame) & 0xFF
+        if key == ord('q'):
+            exit_flag = True
+            break
+        elif key == 27:  # 'ESC' key to exit
+            exit_flag = True
+            break
+
+    if exit_flag:
+        break
+
+cv2.destroyAllWindows()
+
+
+total_time = 0.0
+for data in image_data:
+    width, height, elapsed_time, max_brightness = data
+    total_time += elapsed_time
+    print(f"Width: {width}, Height: {height}, Time: {elapsed_time:.6f} seconds, Max Brightness: {max_brightness}")
+
+
+print(f"Total time elapsed for processing the video: {total_time:.6f} seconds")
