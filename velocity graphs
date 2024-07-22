@@ -1,0 +1,186 @@
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Define folder path containing the images
+folder_path = '109335-flattop'
+image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')]
+image_files.sort()
+
+# Time per frame in seconds
+time_per_frame = 2 / 10000.0  # Convert to seconds
+
+crop_width = 50  # Width of the cropped area
+crop_height = 70  # Height of the cropped area
+
+# Specific frames to process (ensure the frames are within the range of available images)
+frames = [
+    {'t': i, 'x': 480, 'y': 200, 'B': 1.15} for i in range(len(image_files))  # Process all images
+]
+
+num_loops = 1  # Change this to the desired number of loops
+
+image_data = []
+
+exit_flag = False
+
+previous_time = 0.0
+
+for loop in range(num_loops):
+    print(f"Starting loop {loop + 1}/{num_loops}")
+    
+    for frame in frames:
+        t = frame['t']
+        x = frame['x']
+        y = frame['y']
+        brightness_factor = frame['B']
+
+        image_file = image_files[t]  # Get the corresponding image for this frame
+        image_path = os.path.join(folder_path, image_file)
+        img = cv2.imread(image_path)
+
+        if img is None:
+            print(f"Error: The image at {image_path} could not be loaded.")
+            continue
+
+        # Measure the elapsed time between frames
+        elapsed_time = previous_time
+        previous_time += time_per_frame
+
+        # Convert to grayscale
+        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Crop the image
+        img_cropped = img_gray[y:y + crop_height, x:x + crop_width]
+
+        if img_cropped.shape[0] == 0 or img_cropped.shape[1] == 0:
+            print(f"Error: Cropping parameters out of bounds for image at {image_path}.")
+            continue
+
+        # Apply brightness factor
+        img_bright = np.clip(img_cropped.astype(np.float32) * brightness_factor, 0, 255).astype(np.uint8)
+
+        # Normalize the image
+        img_normalized = img_bright / 255.0
+
+        # Standardize the image
+        bn = (img_normalized - img_normalized.mean()) / (img_normalized.max() - img_normalized.min())
+        img_bn = bn - bn.min()
+
+        # Apply threshold
+        img_binary = np.where(img_bn > 0.99, 1, 0).astype(np.uint8)
+
+        # Remove images with more than 10 bright spots
+        if np.sum(img_binary == 1) > 10:
+            print(f"Skipping image at {image_path} due to too many bright spots.")
+            continue
+
+        # Find coordinates of all bright spots in the original image dimensions
+        bright_spots = np.argwhere(img_binary == 1)
+        bright_spots_global = [(spot[1] + x, spot[0] + y) for spot in bright_spots]  # Adjust for crop position
+
+        if len(bright_spots_global) == 0:
+            print(f"No bright spots found in image at {image_path}.")
+            continue
+
+        image_data.append((t, elapsed_time, img_binary, bright_spots_global))
+        
+        cv2.imshow('Video Playback', img_binary * 255)
+
+        key = cv2.waitKey(int(time_per_frame * 1000000)) & 0xFF  # Convert to microseconds
+        if key == ord('q'):
+            exit_flag = True
+            break
+        elif key == 27:  # 'ESC' key to exit
+            exit_flag = True
+            break
+
+    if exit_flag:
+        break
+
+cv2.destroyAllWindows()
+
+# Adjust brightest spot based on proximity to the previous and next spots
+for i in range(1, len(image_data) - 1):
+    previous_spot = image_data[i - 1][3]
+    current_spot = image_data[i][3]
+    next_spot = image_data[i + 1][3]
+    
+    closest_spot = None
+    min_distance = float('inf')
+    
+    for spot in current_spot:
+        dist_to_previous = min([np.linalg.norm(np.array(spot) - np.array(prev_spot)) for prev_spot in previous_spot])
+        dist_to_next = min([np.linalg.norm(np.array(spot) - np.array(next_spot)) for next_spot in next_spot])
+        
+        distance = dist_to_previous + dist_to_next
+        if distance < min_distance:
+            min_distance = distance
+            closest_spot = spot
+
+    # Set the true brightest spot as the closest spot to both previous and next spots
+    image_data[i] = image_data[i][:3] + ([closest_spot],)
+
+# Calculate the change in pixel position over time
+changes_in_position = []
+for i in range(len(image_data) - 1):
+    current_spot = image_data[i][3][0]
+    next_spot = image_data[i + 1][3][0]
+    change_in_position = (next_spot[0] - current_spot[0], next_spot[1] - current_spot[1])
+    changes_in_position.append(change_in_position)
+
+# Calculate velocity in x-direction (pixels per second)
+velocities_x = []
+velocities_y = []
+overall_velocities = []
+
+for i in range(len(changes_in_position)):
+    change_in_x_pixels = changes_in_position[i][0]
+    change_in_y_pixels = changes_in_position[i][1]
+    elapsed_time = time_per_frame  # Elapsed time between frames (constant)
+    if elapsed_time > 0:
+        velocity_x = change_in_x_pixels / elapsed_time
+        velocity_y = change_in_y_pixels / elapsed_time
+    else:
+        velocity_x = 0.0
+        velocity_y = 0.0
+    
+    velocities_x.append(velocity_x)
+    velocities_y.append(velocity_y)
+    
+    overall_velocity = np.sqrt(velocity_x**2 + velocity_y**2)
+    overall_velocities.append(overall_velocity)
+
+# Calculate average velocities
+average_velocity_x = np.mean(velocities_x) if velocities_x else 0
+average_velocity_y = np.mean(velocities_y) if velocities_y else 0
+average_overall_velocity = np.mean(overall_velocities) if overall_velocities else 0
+
+# Display velocities
+print(f'Average Velocity (x): {average_velocity_x:.2f} pixels/second')
+print(f'Average Velocity (y): {average_velocity_y:.2f} pixels/second')
+print(f'Average Overall Velocity: {average_overall_velocity:.2f} pixels/second')
+
+# Optionally, display velocity details using matplotlib
+plt.figure(figsize=(10, 5))
+
+plt.subplot(3, 1, 1)
+plt.plot(velocities_x, label='X Velocity')
+plt.ylabel('Velocity (pixels/second)')
+plt.legend()
+
+plt.subplot(3, 1, 2)
+plt.plot(velocities_y, label='Y Velocity')
+plt.ylabel('Velocity (pixels/second)')
+plt.legend()
+
+plt.subplot(3, 1, 3)
+plt.plot(overall_velocities, label='Overall Velocity')
+plt.ylabel('Velocity (pixels/second)')
+plt.xlabel('Frame')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
