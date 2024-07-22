@@ -1,0 +1,66 @@
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Define folder path containing the images
+folder_path = '109335-flattop'
+image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')]
+image_files.sort()
+
+# Specific cropping dimensions
+x = 480
+y = 200
+crop_width = 50
+crop_height = 70
+
+# Display every Xth image
+X = 5
+
+# Function to display an image with a red dot
+def display_image_with_dot(image_index):
+    if image_index >= len(image_data):
+        print(f"Skipping image index {image_index} - No corresponding data in image_data")
+        return
+    
+    image_file = image_files[image_index]
+    image_path = os.path.join(folder_path, image_file)
+    img = cv2.imread(image_path)
+
+    # Crop the image to chosen dimensions
+    img_cropped = img[y:y + crop_height, x:x + crop_width]
+
+    # Convert cropped image to grayscale
+    img_gray = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2GRAY)
+
+    # Find the brightest pixel in the cropped image
+    brightest_pixel_global = image_data[image_index][3][0]  # Global coordinates of the brightest pixel
+
+    # Adjust brightest pixel coordinates for the cropped region
+    brightest_pixel_cropped = (brightest_pixel_global[0] - x, brightest_pixel_global[1] - y)
+
+    # Ensure the brightest pixel is within the cropped region
+    if brightest_pixel_cropped[0] >= 0 and brightest_pixel_cropped[0] < crop_width and \
+       brightest_pixel_cropped[1] >= 0 and brightest_pixel_cropped[1] < crop_height:
+        
+        # Create image with red dot at the brightest pixel location
+        img_with_dot = img_cropped.copy()
+        cv2.circle(img_with_dot, brightest_pixel_cropped, 1, (0, 0, 255), -1)  # Smaller dot (radius = 3)
+
+        # Display the image with the red dot
+        plt.figure(figsize=(6, 6))
+        plt.imshow(cv2.cvtColor(img_with_dot, cv2.COLOR_BGR2RGB))
+        plt.title(f'Image {image_index} - Brightest Pixel Marked with Red Dot')
+        plt.axis('off')
+        plt.show()
+    else:
+        print(f"Brightest pixel ({brightest_pixel_global}) is outside the cropped region.")
+
+# Display every Xth image
+for i in range(0, len(image_files), X):
+    display_image_with_dot(i)
+
+# If the number of images is not evenly divisible by X, display the last image
+if len(image_files) % X != 0:
+    display_image_with_dot(len(image_files) - 1)
