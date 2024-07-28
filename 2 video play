@@ -1,0 +1,276 @@
+#plot and 2 frame video
+
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt  # Importing matplotlib for plotting
+
+# Example folder path (modify this with your actual path)
+folder_path = "109335"
+
+# Load images from the specified folder
+image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')]
+image_files.sort()
+
+# Parameters for processing
+crop_width = 10  # Width of the cropped area
+crop_height = 25  # Height of the cropped area
+brightness_factor = 1.15  # Example brightness factor
+wait_time = 2  # Wait time between frames in milliseconds
+resize_scale = 10  # Scale factor for resizing the displayed images
+elapsed_time = wait_time / 10000.0  # Convert wait time from milliseconds to seconds
+
+# Conversion factors
+x_conversion_factor = 0.038295455 * 0.0254  # Conversion from pixels to meters for x
+y_conversion_factor = 0.03125 * 0.0254      # Conversion from pixels to meters for y
+
+# Initialize previous brightest spot
+previous_brightest_spot = None
+velocities = []  # List to store velocity data
+
+# Time calculation
+start_time = 39.413132
+fast_camera_delay = 0.44325
+shot_start_time_delay = 0.448311688
+total_start_time = start_time + fast_camera_delay + shot_start_time_delay  # Total start time in seconds
+
+def find_brightest_spot_with_constraint(img_cropped, top_n=3):
+    """
+    Find the brightest spot in the image cropped to the defined area,
+    ensuring it is one of the top_n brightest y-coordinates.
+    """
+    # Get indices of the top n brightest pixels in the image
+    sorted_indices = np.argsort(img_cropped, axis=None)[-top_n:]
+    brightest_indices = np.unravel_index(sorted_indices, img_cropped.shape)
+    
+    # Find the overall brightest spot among the top n
+    if brightest_indices[0].size > 0:  # Ensure there are valid indices
+        brightest_spot_idx = (brightest_indices[0][np.argmax(img_cropped[brightest_indices])],
+                              brightest_indices[1][np.argmax(img_cropped[brightest_indices])])
+        return brightest_spot_idx
+    else:
+        return None  # Return None if no valid brightest spot found
+
+# Time variable to keep track of overall time
+time_values = []
+
+# Process each image
+for idx, image_file in enumerate(image_files):
+    image_path = os.path.join(folder_path, image_file)
+    img = cv2.imread(image_path)
+
+    if img is None:
+        print(f"Error: The image at {image_path} could not be loaded.")
+        continue
+
+    # Convert to grayscale
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Crop the image
+    x, y = 480, 230  # Example coordinates (modify as needed)
+    img_cropped = img_gray[y:y + crop_height, x:x + crop_width]
+
+    # Apply brightness factor
+    img_bright = np.clip(img_cropped.astype(np.float32) * brightness_factor, 0, 255).astype(np.uint8)
+
+    # Normalize the image
+    img_normalized = img_bright / 255.0
+
+    # Standardize the image
+    bn = (img_normalized - img_normalized.mean()) / (img_normalized.max() - img_normalized.min())
+    img_bn = bn - bn.min()
+
+    # Find the true brightest spot in the cropped image
+    if idx == 0:  # For the first image
+        brightest_spot_idx = find_brightest_spot_with_constraint(img_cropped)
+        if brightest_spot_idx is None:  # Check if no valid spot was found
+            print(f"No valid bright spots found in the first image at {image_path}.")
+            continue
+    else:  # For subsequent images, no constraint
+        brightest_spot_idx = np.unravel_index(np.argmax(img_cropped), img_cropped.shape)
+
+    brightest_spot_value = img_cropped[brightest_spot_idx]
+
+    # Check if the brightest spot value is significant (e.g., above a certain threshold)
+    if brightest_spot_value < 20:  # Adjust this threshold as necessary
+        print(f"No significant bright spots found in image at {image_path}.")
+        continue
+
+    # Check y-coordinate constraint against the previous brightest spot for subsequent images
+    if previous_brightest_spot is not None and idx > 0 and brightest_spot_idx[0] + y > previous_brightest_spot[1]:
+        # Force the selection of a new brightest pixel that meets the y-constraint
+        valid_spots = []
+        for i in range(crop_height):
+            for j in range(crop_width):
+                if img_cropped[i, j] >= 20 and (i + y) <= previous_brightest_spot[1]:  # Significant brightness and y constraint
+                    valid_spots.append((i, j))
+
+        if valid_spots:
+            # Select the brightest valid spot
+            brightest_spot_idx = max(valid_spots, key=lambda pos: img_cropped[pos[0], pos[1]])
+        else:
+            print(f"No valid bright spots found under the y-constraint for image at {image_path}.")
+            continue
+
+    # Update previous brightest spot with actual coordinates
+    current_brightest_spot = (brightest_spot_idx[1] + x, brightest_spot_idx[0] + y)
+
+    if previous_brightest_spot is not None:
+        # Calculate velocities
+        x_velocity_pixels = (current_brightest_spot[0] - previous_brightest_spot[0]) / elapsed_time
+        y_velocity_pixels = (current_brightest_spot[1] - previous_brightest_spot[1]) / elapsed_time
+
+        # Convert velocities to m/s
+        x_velocity = x_velocity_pixels * x_conversion_factor
+        y_velocity = y_velocity_pixels * y_conversion_factor
+        overall_velocity = np.sqrt(x_velocity**2 + y_velocity**2)
+
+        # Append velocity data
+        velocities.append((x_velocity, y_velocity, overall_velocity))
+
+        # Calculate and append time for the current frame
+        time_values.append(total_start_time + idx * elapsed_time)
+
+        print(f"Frame: {image_file}, X Velocity: {x_velocity:.2f} m/s, Y Velocity: {y_velocity:.2f} m/s, Overall Velocity: {overall_velocity:.2f} m/s")
+
+    # Update the previous brightest spot
+    previous_brightest_spot = current_brightest_spot
+
+    # Create a binary image highlighting the true brightest spot
+    img_binary = np.zeros_like(img_cropped)  # Reset binary image
+    dot_position = (brightest_spot_idx[1], brightest_spot_idx[0])  # Use (x, y) for the dot
+    if 0 <= dot_position[0] < crop_width and 0 <= dot_position[1] < crop_height:
+        img_binary[dot_position[1], dot_position[0]] = 255  # Set the brightest spot to white
+
+    # Draw a red dot on the true brightest pixel in the cropped image
+    img_cropped_with_dot = cv2.cvtColor(img_cropped, cv2.COLOR_GRAY2BGR)
+    if previous_brightest_spot is not None:
+        cv2.circle(img_cropped_with_dot, (dot_position[0], dot_position[1]), 1, (0, 0, 255), -1)  # Red dot
+
+    # Convert binary image to a 3-channel image
+    img_binary_colored = np.stack((img_binary,) * 3, axis=-1)  # Convert to 3-channel (255 for white)
+
+    # Resize images for display
+    img_cropped_with_dot_resized = cv2.resize(img_cropped_with_dot, (crop_width * resize_scale, crop_height * resize_scale))
+    img_binary_colored_resized = cv2.resize(img_binary_colored, (crop_width * resize_scale, crop_height * resize_scale))
+
+    # Combine images for display
+    combined_image = np.hstack((img_cropped_with_dot_resized, img_binary_colored_resized))  # Combine images
+
+    # Display the combined images
+    cv2.imshow('Cropped Image with Brightest Spot and Thresholded Image', combined_image)
+
+    # Wait for a specified time before showing the next image
+    if cv2.waitKey(wait_time) & 0xFF == ord('q'):  # Press 'q' to quit early
+        break
+
+# Close all OpenCV windows after playback
+cv2.destroyAllWindows()
+
+# Calculate and print the averages of the velocities
+if velocities:
+    avg_x_velocity = np.mean([v[0] for v in velocities])
+    avg_y_velocity = np.mean([v[1] for v in velocities])
+    avg_overall_velocity = np.mean([v[2] for v in velocities])
+
+    print("\nAverage Velocities:")
+    print(f"Average X Velocity: {avg_x_velocity:.2f} m/s")
+    print(f"Average Y Velocity: {avg_y_velocity:.2f} m/s")
+    print(f"Average Overall Velocity: {avg_overall_velocity:.2f} m/s")
+else:
+    print("No velocities calculated.")
+
+# Define a function to calculate moving average
+def moving_average(data, window_size):
+    return np.convolve(data, np.ones(window_size), 'valid') / window_size
+
+# Plot overall velocity and moving average against time
+if time_values and velocities:
+    overall_velocities = [v[2] for v in velocities]  # Extract overall velocities for plotting
+    theoretical_velocity = 1.2  # Define the theoretical velocity
+
+    # Calculate moving average with a window size of 5
+    window_size = 3
+    moving_avg_velocity = moving_average(overall_velocities, window_size)
+    moving_avg_time = time_values[window_size - 1:]  # Adjust time array for moving average
+
+    # Calculate the average of the moving average velocities
+    avg_moving_avg_velocity = np.mean(moving_avg_velocity)
+
+    # Print the average moving average velocity
+    print(f"\nAverage Moving Average Velocity: {avg_moving_avg_velocity:.2f} m/s")
+
+    # Values for current (kA)
+    current_values = [
+        118.4679079,
+        118.9407425,
+        119.0625905,
+        119.7659354,
+        120.1080856,
+        120.4660312,
+        121.1785469,
+        121.6848712,
+        122.0425049,
+        121.7383704,
+        121.6003101,
+        121.401799,
+        120.9403365,
+        121.9119244,
+        120.7027634,
+        120.8607224,
+        121.0495461,
+        121.2141483,
+        121.3884291,
+        121.3047116,
+        121.2809113,
+        121.1890747,
+        121.1480151,
+        121.2400528,
+        120.9123341,
+        120.8626175,
+        120.8252411,
+        120.9491922,
+        121.063654,
+        121.0987286,
+        121.2360518,
+        121.183815,
+        121.0820859,
+        120.9757242,
+        120.836935,
+        121.0930377
+    ]
+
+  # Create an array of the same length as time_values with all values set to 2.3 m/s
+handpicked_overall_velocity = np.full(len(time_values), 2.3)
+handpicked_time_values = time_values  # Use the same time values for plotting
+
+# Plotting the data
+fig, ax1 = plt.subplots(figsize=(10, 6))
+
+# Plot calculated velocity
+ax1.plot(time_values, overall_velocities, marker='o', label='Calculated Velocity', color='blue')
+ax1.plot(moving_avg_time, moving_avg_velocity, label='Moving Average Velocity', color='deepskyblue') 
+ax1.plot(handpicked_time_values, handpicked_overall_velocity, label='Handpicked Overall Velocity (2.3 m/s)', color='red', linestyle='--') 
+ax1.axhline(y=theoretical_velocity, color='orange', linestyle='--', label='Theoretical Velocity (1.2 m/s)')
+
+# Calculate average overall velocity over time and plot it
+average_overall_velocity_line = np.full_like(time_values, avg_overall_velocity)  # Create an array for the average line
+ax1.plot(time_values, average_overall_velocity_line, color='blue', linestyle='--',label='Average Overall Velocity')
+
+# Add vertical lines for specific times
+# ax1.axvline(x=40.30469369, color='green', linestyle='--')
+# ax1.axvline(x=40.31159369, color='yellow', linestyle='--')
+
+ax1.set_title('Velocities vs Time', fontsize=18)
+ax1.set_xlabel('Time (s)', fontsize=15)  # Enlarged label
+ax1.set_ylabel('Velocity (m/s)', fontsize=15)  # Enlarged label
+ax1.grid()
+ax1.legend(loc='upper right')  # Move legend to the top right
+
+# Create a second y-axis for current (kA)
+ax2 = ax1.twinx()
+ax2.plot(time_values, current_values[:len(time_values)], label='Current (kA)', color='purple')
+ax2.set_ylabel('Current (kA)', fontsize=15)
+ax2.legend(loc='upper left')  # Move legend to the upper left
+
+plt.show()
