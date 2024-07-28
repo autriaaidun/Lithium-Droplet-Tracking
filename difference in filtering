@@ -1,0 +1,70 @@
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Define the folder and image file to use
+folder_path = '109335'
+image_file = 'Img000006.jpg'
+image_path = os.path.join(folder_path, image_file)
+
+# Load the image
+img = cv2.imread(image_path)
+if img is None:
+    print(f"Error: The image at {image_path} could not be loaded.")
+else:
+    # Define cropping parameters
+    x = 460
+    y = 170
+    crop_width = 100
+    crop_height = 100
+    brightness_factor = 1.15
+
+    # Convert to grayscale
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Crop the image
+    img_cropped = img_gray[y:y + crop_height, x:x + crop_width]
+
+    # Apply brightness factor (filtering)
+    img_bright = np.clip(img_cropped.astype(np.float32) * brightness_factor, 0, 255).astype(np.uint8)
+
+    # Normalize the image
+    img_normalized = img_bright / 255.0
+
+    # Standardize the image
+    bn = (img_normalized - img_normalized.mean()) / (img_normalized.max() - img_normalized.min())
+    img_bn = bn - bn.min()
+
+    # Apply threshold
+    img_binary = np.where(img_bn > 0.99, 1, 0).astype(np.uint8)
+
+    # Plot the images
+    plt.figure(figsize=(12, 6))
+
+    # Cropped photo with no filtering, normalization, or threshold
+    plt.subplot(1, 4, 1)
+    plt.imshow(img_cropped, cmap='gray')
+    plt.title('Cropped')
+    plt.axis('off')
+
+    # Cropped photo with filtering (brightness factor) only
+    plt.subplot(1, 4, 2)
+    plt.imshow(img_bright, cmap='gray')
+    plt.title('Cropped + Filtering')
+    plt.axis('off')
+
+    # Cropped photo with filtering and normalization (no threshold)
+    plt.subplot(1, 4, 3)
+    plt.imshow(img_bn, cmap='gray')
+    plt.title('Cropped + Filter + Norm')
+    plt.axis('off')
+
+    # Cropped photo with filtering, normalization, and threshold
+    plt.subplot(1, 4, 4)
+    plt.imshow(img_binary, cmap='gray')
+    plt.title('Cropped + Filter + Norm + Thresh')
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
