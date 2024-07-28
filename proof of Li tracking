@@ -1,0 +1,161 @@
+import os
+import cv2
+import numpy as np
+
+# Example folder path (modify this with your actual path)
+folder_path = "109335"
+
+# Load images from the specified folder
+image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')]
+image_files.sort()
+
+# Parameters for processing
+original_crop_width = 10  # Width of the original cropped area
+original_crop_height = 25  # Height of the original cropped area
+display_crop_width = 70  # Width of the displayed cropped area
+display_crop_height = 70  # Height of the displayed cropped area
+brightness_factor = 1.15  # Example brightness factor
+wait_time = 200  # Wait time between frames in milliseconds
+resize_scale = 20  # Scale factor for resizing the displayed images
+elapsed_time = wait_time / 1000.0  # Convert wait time from milliseconds to seconds
+dot_size = 2  # Size of the red dot
+
+# Coordinates for the original cropped region
+original_x, original_y = 480, 230
+
+# Conversion factors
+x_conversion_factor = 0.038295455 * 0.0254  # Conversion from pixels to meters for x
+y_conversion_factor = 0.03125 * 0.0254      # Conversion from pixels to meters for y
+
+# Initialize previous brightest spot
+previous_brightest_spot = None
+velocities = []  # List to store velocity data
+brightest_spots = []  # List to store coordinates of brightest spots
+
+# Time calculation
+start_time = 39.413132
+fast_camera_delay = 0.44325
+shot_start_time_delay = 0.448311688
+total_start_time = start_time + fast_camera_delay + shot_start_time_delay  # Total start time in seconds
+
+def find_brightest_spot_with_constraint(img_cropped, top_n=3):
+    sorted_indices = np.argsort(img_cropped, axis=None)[-top_n:]
+    brightest_indices = np.unravel_index(sorted_indices, img_cropped.shape)
+    
+    if brightest_indices[0].size > 0:
+        brightest_spot_idx = (brightest_indices[0][np.argmax(img_cropped[brightest_indices])],
+                              brightest_indices[1][np.argmax(img_cropped[brightest_indices])])
+        return brightest_spot_idx
+    else:
+        return None
+
+# Time variable to keep track of overall time
+time_values = []
+
+# Process each image
+for idx, image_file in enumerate(image_files):
+    image_path = os.path.join(folder_path, image_file)
+    img = cv2.imread(image_path)
+
+    if img is None:
+        print(f"Error: The image at {image_path} could not be loaded.")
+        continue
+
+    # Convert to grayscale
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Crop the image for analysis
+    img_cropped = img_gray[original_y:original_y + original_crop_height, original_x:original_x + original_crop_width]
+
+    # Apply brightness factor
+    img_bright = np.clip(img_cropped.astype(np.float32) * brightness_factor, 0, 255).astype(np.uint8)
+
+    # Normalize the image
+    img_normalized = img_bright / 255.0
+
+    # Standardize the image
+    bn = (img_normalized - img_normalized.mean()) / (img_normalized.max() - img_normalized.min())
+    img_bn = bn - bn.min()
+
+    # Find the true brightest spot in the original cropped image
+    if idx == 0:
+        brightest_spot_idx = find_brightest_spot_with_constraint(img_cropped)
+        if brightest_spot_idx is None:
+            print(f"No valid bright spots found in the first image at {image_path}.")
+            continue
+    else:
+        brightest_spot_idx = np.unravel_index(np.argmax(img_cropped), img_cropped.shape)
+
+    # Shift the detected bright spot by +2 pixels in the x-direction
+    brightest_spot_idx = (brightest_spot_idx[0], min(brightest_spot_idx[1] + 2, img_cropped.shape[1] - 1))
+
+    brightest_spot_value = img_cropped[brightest_spot_idx]
+
+    if brightest_spot_value < 20:
+        print(f"No significant bright spots found in image at {image_path}.")
+        continue
+
+    if previous_brightest_spot is not None and idx > 0 and brightest_spot_idx[0] + original_y > previous_brightest_spot[1]:
+        valid_spots = []
+        for i in range(original_crop_height):
+            for j in range(original_crop_width):
+                if img_cropped[i, j] >= 20 and (i + original_y) <= previous_brightest_spot[1]:
+                    valid_spots.append((i, j))
+
+        if valid_spots:
+            brightest_spot_idx = max(valid_spots, key=lambda pos: img_cropped[pos[0], pos[1]])
+            brightest_spot_idx = (brightest_spot_idx[0], min(brightest_spot_idx[1] + 2, img_cropped.shape[1] - 1))
+        else:
+            print(f"No valid bright spots found under the y-constraint for image at {image_path}.")
+            continue
+
+    current_brightest_spot = (brightest_spot_idx[1] + original_x, brightest_spot_idx[0] + original_y)
+
+    brightest_spots.append(current_brightest_spot)  # Store the coordinates of the brightest spot
+
+    if previous_brightest_spot is not None:
+        x_velocity_pixels = (current_brightest_spot[0] - previous_brightest_spot[0]) / elapsed_time
+        y_velocity_pixels = (current_brightest_spot[1] - previous_brightest_spot[1]) / elapsed_time
+
+        x_velocity = x_velocity_pixels * x_conversion_factor
+        y_velocity = y_velocity_pixels * y_conversion_factor
+        overall_velocity = np.sqrt(x_velocity**2 + y_velocity**2)
+
+        velocities.append((x_velocity, y_velocity, overall_velocity))
+
+        time_values.append(total_start_time + idx * elapsed_time)
+
+        print(f"Frame: {image_file}, X Velocity: {x_velocity:.2f} m/s, Y Velocity: {y_velocity:.2f} m/s, Overall Velocity: {overall_velocity:.2f} m/s")
+
+    previous_brightest_spot = current_brightest_spot
+
+    img_binary = np.zeros_like(img_cropped)
+    dot_position = (brightest_spot_idx[1], brightest_spot_idx[0])
+    if 0 <= dot_position[0] < original_crop_width and 0 <= dot_position[1] < original_crop_height:
+        img_binary[dot_position[1], dot_position[0]] = 255
+
+    # Crop the image for display (allowing for different crop window)
+    display_x, display_y = 470, 200  # Example coordinates for the display crop window (modify as needed)
+    img_display_cropped = img_gray[display_y:display_y + display_crop_height, display_x:display_x + display_crop_width]
+
+    img_display_cropped_with_dot = cv2.cvtColor(img_display_cropped, cv2.COLOR_GRAY2BGR)
+    display_dot_position = (current_brightest_spot[0] - display_x, current_brightest_spot[1] - display_y)
+    
+    # Display the red dot on the first video
+    if 0 <= display_dot_position[0] < display_crop_width and 0 <= display_dot_position[1] < display_crop_height:
+        cv2.circle(img_display_cropped_with_dot, display_dot_position, dot_size, (0, 0, 255), -1)
+
+    # Resize images for display
+    img_display_cropped_resized_with_dot = cv2.resize(img_display_cropped_with_dot, (display_crop_width * resize_scale, display_crop_height * resize_scale))
+
+    # Convert the display cropped image (without dot) to BGR
+    img_display_cropped_bgr = cv2.cvtColor(img_display_cropped, cv2.COLOR_GRAY2BGR)
+    img_display_cropped_resized_no_dot = cv2.resize(img_display_cropped_bgr, (display_crop_width * resize_scale, display_crop_height * resize_scale))
+
+    # Combine both images side by side
+    combined_image = np.hstack((img_display_cropped_resized_with_dot, img_display_cropped_resized_no_dot))
+
+    cv2.imshow('Display Cropped Image with and without Dot', combined_image)
+    cv2.waitKey(wait_time)
+
+cv2.destroyAllWindows()
