@@ -1,0 +1,56 @@
+#just normalized video
+
+import os
+import cv2
+import numpy as np
+
+# Example folder path (modify this with your actual path)
+folder_path = "109335"
+
+# Load images from the specified folder
+image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')]
+image_files.sort()
+
+# Parameters for processing
+crop_width = 25  # Width of the cropped area
+crop_height = 50  # Height of the cropped area
+brightness_factor = 1.15  # Example brightness factor
+wait_time = 200  # Wait time between frames in milliseconds
+resize_scale = 10  # Scale factor for resizing the displayed images
+
+# Process each image
+for idx, image_file in enumerate(image_files):
+    image_path = os.path.join(folder_path, image_file)
+    img = cv2.imread(image_path)
+
+    if img is None:
+        print(f"Error: The image at {image_path} could not be loaded.")
+        continue
+
+    # Convert to grayscale
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Crop the image
+    x, y = 470, 215  # Example coordinates (modify as needed)
+    img_cropped = img_gray[y:y + crop_height, x:x + crop_width]
+
+    # Apply brightness factor
+    img_bright = np.clip(img_cropped.astype(np.float32) * brightness_factor, 0, 255).astype(np.uint8)
+
+    # Normalize the image
+    img_normalized = img_bright / 255.0
+
+    # Standardize the image
+    bn = (img_normalized - img_normalized.mean()) / (img_normalized.max() - img_normalized.min())
+    img_bn = bn - bn.min()
+
+    # Resize the normalized image for display
+    img_bn_resized = cv2.resize(cv2.cvtColor((img_bn * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR), (crop_width * resize_scale, crop_height * resize_scale))
+
+    # Display the normalized image
+    cv2.imshow('Cropped, Filtered, Normalized Image', img_bn_resized)
+
+    if cv2.waitKey(wait_time) & 0xFF == ord('q'):
+        break
+
+cv2.destroyAllWindows()
